@@ -60,7 +60,17 @@ class DraftBackendFactory:
         if backend_type not in backend_map:
             raise ValueError(error_template.format(backend_type=backend_type))
 
-        return backend_map[backend_type]()
+        backend = backend_map[backend_type]()
+        if backend is not None:
+            # The runner-stamped pair, like `build_attention_backends` sets on
+            # the runner's own backend: these products replace the draft
+            # runner's backend (or serve one draft phase), and readers that
+            # assemble backend-specific kwargs (`serving_attention_backend`)
+            # prefer the stamp over the process pair -- a draft override must
+            # win there too.
+            backend.prefill_attention_backend_str = backend_type
+            backend.decode_attention_backend_str = backend_type
+        return backend
 
     def create_decode_backend(self):
         # No multi-step draft backend for steps=0 (nospec) or steps=1.
@@ -131,7 +141,17 @@ class DraftBackendFactory:
             attn_backend_wrapper_for_draft_extend,
         )
 
-        return attn_backend_wrapper_for_draft_extend(self.draft_model_runner, backend)
+        wrapped = attn_backend_wrapper_for_draft_extend(
+            self.draft_model_runner, backend
+        )
+        if wrapped is not backend and wrapped is not None and backend is not None:
+            # The wrapper is what enters the ForwardContext; it must answer
+            # with the wrapped backend's stamp.
+            wrapped.prefill_attention_backend_str = (
+                backend.prefill_attention_backend_str
+            )
+            wrapped.decode_attention_backend_str = backend.decode_attention_backend_str
+        return wrapped
 
     def _create_dsa_decode_backend(self):
         from sglang.srt.layers.attention.dsa_backend import (
