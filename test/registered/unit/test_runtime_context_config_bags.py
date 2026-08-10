@@ -76,14 +76,78 @@ class TestConfigBags(CustomTestCase):
         with self.assertRaises(ValueError):
             rc.get_memory()
 
-    def test_bag_values_match_server_args(self):
-        sa = self._publish()
-        self.assertEqual(rc.get_exec().moe.moe_runner_backend, sa.moe_runner_backend)
-        self.assertEqual(rc.get_exec().kernel.attention_backend, sa.attention_backend)
-        self.assertEqual(rc.get_memory().hicache_ratio, sa.hicache_ratio)
+    def test_the_bags_carry_what_resolution_produced(self):
+        """The projection is faithful: each leaf is the *resolved* value.
+
+        Two requirements the dummy-model shortcut cannot meet: the record must
+        go through the real resolution pipeline (a dummy path returns at the
+        dummy-model boundary with every sampled leaf still raw, so raw==raw
+        would pass vacuously), and the reference must be an independent
+        resolution of the same raw input -- a fresh, never-published record --
+        so the assertion is "bag == what resolution produces", not "bag == the
+        instance publish copied from". Reproducibility
+        (`test_resolution_is_reproducible`) licenses the sibling as a stand-in
+        for the pipeline's output, and the raw-differs guard below keeps the
+        comparison meaningful: at least one compared leaf must differ from its
+        dataclass default. Step 12 keeps records at the user's raw input; then
+        the sibling goes raw and this assertion starts failing for every
+        resolution-written leaf, which is the signal the bags became the only
+        home of the effective value.
+        """
+        import dataclasses
+        import json
+        import os
+        import shutil
+        import tempfile
+
+        config_dir = tempfile.mkdtemp(prefix="bag_contract_")
+        self.addCleanup(shutil.rmtree, config_dir, ignore_errors=True)
+        with open(os.path.join(config_dir, "config.json"), "w") as handle:
+            json.dump(
+                {
+                    "architectures": ["LlamaForCausalLM"],
+                    "model_type": "llama",
+                    "hidden_size": 16,
+                    "intermediate_size": 32,
+                    "num_attention_heads": 2,
+                    "num_key_value_heads": 2,
+                    "num_hidden_layers": 2,
+                    "vocab_size": 128,
+                    "max_position_embeddings": 2048,
+                },
+                handle,
+            )
+        environ_before = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(environ_before)))
+
+        def resolve():
+            return ServerArgs(model_path=config_dir, device="cuda", random_seed=42)
+
+        sa = resolve()
+        rc.publish(sa, role="scheduler")
+        reference = resolve()
+        defaults = {f.name: f.default for f in dataclasses.fields(ServerArgs)}
+        sampled = (
+            (lambda: rc.get_exec().moe.moe_runner_backend, "moe_runner_backend"),
+            (lambda: rc.get_exec().kernel.attention_backend, "attention_backend"),
+            (lambda: rc.get_memory().hicache_ratio, "hicache_ratio"),
+            (lambda: rc.get_schedule().page_size, "page_size"),
+            (lambda: rc.get_serving().host, "host"),
+            (lambda: rc.get_model().model_path, "model_path"),
+        )
+        resolution_changed = 0
+        for accessor, leaf in sampled:
+            with self.subTest(leaf=leaf):
+                self.assertEqual(accessor(), getattr(reference, leaf))
+            if getattr(reference, leaf) != defaults.get(leaf):
+                resolution_changed += 1
+        # The comparison only demonstrates faithfulness if resolution actually
+        # moved some of the sampled leaves off their raw defaults.
+        self.assertGreaterEqual(resolution_changed, 2)
+        # And the record agrees today, which is what step 12 changes: when this
+        # assertion starts failing for a resolution-written leaf, the flip
+        # landed and the bag is the only place the effective value lives.
         self.assertEqual(rc.get_schedule().page_size, sa.page_size)
-        self.assertEqual(rc.get_serving().host, sa.host)
-        self.assertEqual(rc.get_model().model_path, sa.model_path)
 
     def test_all_accessors_and_exec_subgroups(self):
         self._publish()
