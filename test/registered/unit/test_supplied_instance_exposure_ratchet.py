@@ -106,7 +106,6 @@ _EXPOSED = {
     ("configs/embedding_model_spec.py", "disable_radix_cache"),
     ("configs/model_config.py", "_speculative_draft_quantization_explicitly_set"),
     ("constrained/base_grammar_backend.py", "grammar_backend"),
-    ("disaggregation/decode_kvcache_offload_manager.py", "page_size"),
     ("disaggregation/encode_receiver.py", "encoder_transfer_backend"),
     ("disaggregation/encode_server.py", "dp_size"),
     ("disaggregation/encode_server.py", "encoder_transfer_backend"),
@@ -146,7 +145,6 @@ _EXPOSED = {
     ("managers/scheduler.py", "dp_size"),
     ("managers/scheduler.py", "enable_dp_attention"),
     ("managers/scheduler.py", "ep_size"),
-    ("managers/scheduler.py", "page_size"),
     (
         "managers/scheduler_components/new_token_ratio_tracker.py",
         "schedule_conservativeness",
@@ -161,7 +159,6 @@ _EXPOSED = {
     ("mem_cache/allocation_sizing.py", "page_size"),
     ("mem_cache/kv_cache_builder.py", "disable_radix_cache"),
     ("mem_cache/kv_cache_builder.py", "enable_dp_attention"),
-    ("model_executor/model_runner.py", "page_size"),
     (
         "model_executor/runner_backend/tc_piecewise_cuda_graph_backend.py",
         "cuda_graph_config",
