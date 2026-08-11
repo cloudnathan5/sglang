@@ -131,8 +131,14 @@ class CompressedTensorsW4A16Fp4(CompressedTensorsLinearScheme):
                 "checkpoint quantized with a shared global scale for q/k/v and "
                 "gate/up."
             )
+        # compressed-tensors stores the PRE-quant multiplier
+        # (global_scale = 448*6/amax, applied before rounding); the Marlin path
+        # inherited ModelOpt semantics, where weight_scale_2 is the DEQUANT
+        # multiplier. They are reciprocals -- vLLM's compressed-tensors scheme
+        # makes the same 1/x conversion before its kernels see the value.
         layer.weight_global_scale = Parameter(
-            layer.weight_global_scale.max().to(torch.float32), requires_grad=False
+            1.0 / layer.weight_global_scale.max().to(torch.float32),
+            requires_grad=False,
         )
 
         # The Marlin helpers operate on `weight`; compressed-tensors names the
