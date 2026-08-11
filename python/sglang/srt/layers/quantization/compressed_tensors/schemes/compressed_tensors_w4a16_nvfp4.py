@@ -43,6 +43,10 @@ __all__ = ["CompressedTensorsW4A16Fp4"]
 # served here.
 NVFP4_GROUP_SIZE = 16
 
+# Warn once per process, not once per linear layer (process_weights_after_loading
+# runs for every one of them). Standard logging has no warning_once.
+_warned_fused_global_scale = False
+
 
 class _MarlinGroupSizeShim:
     """`prepare_nvfp4_layer_for_marlin` reads ``layer.quant_config.group_size``.
@@ -124,8 +128,13 @@ class CompressedTensorsW4A16Fp4(CompressedTensorsLinearScheme):
         # per constituent projection. Marlin dequantizes with a single scalar,
         # so collapse to the max; warn when they disagree, since that costs
         # accuracy on whichever projection is scaled down.
-        if torch.unique(layer.weight_global_scale).numel() != 1:
-            logger.warning_once(
+        global _warned_fused_global_scale
+        if (
+            torch.unique(layer.weight_global_scale).numel() != 1
+            and not _warned_fused_global_scale
+        ):
+            _warned_fused_global_scale = True
+            logger.warning(
                 "NVFP4 W4A16: weight_global_scale differs across fused parallel "
                 "layers; collapsing to max. Accuracy may be degraded. Prefer a "
                 "checkpoint quantized with a shared global scale for q/k/v and "
