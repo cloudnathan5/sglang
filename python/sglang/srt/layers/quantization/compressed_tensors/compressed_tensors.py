@@ -42,6 +42,7 @@ from sglang.srt.layers.quantization.compressed_tensors.schemes import (
     CompressedTensorsLinearScheme,
     CompressedTensorsMoEScheme,
     CompressedTensorsMxInt4MoE,
+    CompressedTensorsW4A16Fp4,
     CompressedTensorsW4A4Fp4,
     CompressedTensorsW4A4Nvfp4MoE,
     CompressedTensorsW4AFP8MoE,
@@ -370,6 +371,8 @@ class CompressedTensorsConfig(QuantizationConfig):
     def _is_dynamic_token_w4a8(
         self, weight_quant: BaseModel, input_quant: BaseModel
     ) -> bool:
+        if weight_quant is None or input_quant is None:
+            return False
         is_weight_4_bits = weight_quant.num_bits == 4
         is_activation_8_bits = input_quant.num_bits == 8
         weight_strategy = (
@@ -419,6 +422,8 @@ class CompressedTensorsConfig(QuantizationConfig):
     def _is_static_tensor_w8a8(
         self, weight_quant: BaseModel, input_quant: BaseModel
     ) -> bool:
+        if weight_quant is None or input_quant is None:
+            return False
         is_8_bits = weight_quant.num_bits == input_quant.num_bits == 8
         weight_strategy = (
             weight_quant.strategy == QuantizationStrategy.TENSOR.value
@@ -437,6 +442,8 @@ class CompressedTensorsConfig(QuantizationConfig):
     def _is_dynamic_token_w8a8(
         self, weight_quant: BaseModel, input_quant: BaseModel
     ) -> bool:
+        if weight_quant is None or input_quant is None:
+            return False
         is_8_bits = weight_quant.num_bits == input_quant.num_bits == 8
         weight_strategy = (
             weight_quant.strategy == QuantizationStrategy.TENSOR.value
@@ -512,6 +519,25 @@ class CompressedTensorsConfig(QuantizationConfig):
 
         # All conditions satisfied.
         return True
+
+    def _is_fp4a16_nvfp4(
+        self, weight_quant: QuantizationArgs, input_quant: QuantizationArgs
+    ):
+        """NVFP4 weights with unquantized activations.
+
+        The absence of input_quant is the defining property: same weight format
+        as W4A4, activations left in fp16/bf16.
+        """
+        if weight_quant is None or input_quant is not None:
+            return False
+
+        return (
+            weight_quant.strategy == QuantizationStrategy.TENSOR_GROUP.value
+            and weight_quant.symmetric
+            and weight_quant.group_size == 16
+            and weight_quant.type == QuantizationType.FLOAT
+            and weight_quant.num_bits == 4
+        )
 
     def _is_fp4a4_nvfp4(
         self, weight_quant: QuantizationArgs, input_quant: QuantizationArgs
@@ -595,6 +621,8 @@ class CompressedTensorsConfig(QuantizationConfig):
     def _is_dynamic_token_w4(
         self, weight_quant: BaseModel, input_quant: BaseModel
     ) -> bool:
+        if weight_quant is None or input_quant is None:
+            return False
         is_w4 = weight_quant.num_bits == 4
         weight_strategy = (
             weight_quant.strategy == QuantizationStrategy.TENSOR.value
@@ -645,6 +673,15 @@ class CompressedTensorsConfig(QuantizationConfig):
                 )
 
         if is_activation_quantization_format(quant_format):
+            if self._is_fp4a16_nvfp4(weight_quant, input_quant):
+                if self._check_scheme_supported(
+                    CompressedTensorsW4A16Fp4.get_min_capability(), error=False
+                ):
+                    return CompressedTensorsW4A16Fp4()
+                raise NotImplementedError(
+                    "Current platform does not support nvfp4 w4a16 quantization."
+                )
+
             if self._is_fp4a4_nvfp4(weight_quant, input_quant):
                 is_fp4a4_nvfp4_supported = self._check_scheme_supported(
                     CompressedTensorsW4A4Fp4.get_min_capability(), error=False
